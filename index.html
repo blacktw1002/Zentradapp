@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>TradeFlow</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    
+    <!-- Prop Types (Required for Recharts UMD) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
+
+    <!-- Recharts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              apple: {
+                gray: '#F2F2F7',
+                blue: '#007AFF',
+                green: '#34C759',
+                red: '#FF3B30',
+                orange: '#FF9500',
+                divider: '#C6C6C8',
+              }
+            },
+            fontFamily: {
+              sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+            }
+          }
+        }
+      }
+    </script>
+    
+    <style>
+      body {
+        background-color: #F2F2F7;
+        -webkit-tap-highlight-color: transparent;
+        overscroll-behavior-y: none;
+      }
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      
+      @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700&display=swap');
+      .font-rounded { font-family: 'M PLUS Rounded 1c', sans-serif; }
+      
+      @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      @keyframes scaleIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+      
+      .animate-fade-in { animation: fadeIn 0.4s ease-out; }
+      .animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+      .animate-scale-in { animation: scaleIn 0.2s ease-out; }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.1"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useMemo, useRef } = React;
+      // Ensure Recharts is available
+      const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } = window.Recharts || {};
+
+      // --- Constants & Types (Simulated) ---
+      const AssetType = { STOCK: 'Stock', FUTURES: 'Futures', CRYPTO: 'Crypto' };
+      const TradeDirection = { LONG: 'Long', SHORT: 'Short' };
+      const ViewState = { HOME: 'home', CALENDAR: 'calendar', STATS: 'stats', ADD: 'add', SETTINGS: 'settings' };
+      const StatsPeriod = { MONTH: 'Month', QUARTER: 'Quarter', YEAR: 'Year' };
+
+      const ASSET_COLORS = {
+        [AssetType.STOCK]: 'bg-blue-500',
+        [AssetType.FUTURES]: 'bg-purple-500',
+        [AssetType.CRYPTO]: 'bg-orange-500',
+      };
+
+      const ASSET_LABELS = {
+        [AssetType.STOCK]: '股票',
+        [AssetType.FUTURES]: '期貨',
+        [AssetType.CRYPTO]: '加密貨幣',
+      };
+
+      const DIRECTION_LABELS = {
+        [TradeDirection.LONG]: '多單',
+        [TradeDirection.SHORT]: '空單',
+      };
+
+      const THEME_COLORS = {
+        'blue': { primary: 'text-blue-500', label: '海洋藍' },
+        'green': { primary: 'text-emerald-500', label: '薄荷綠' },
+        'orange': { primary: 'text-orange-500', label: '活力橘' },
+        'purple': { primary: 'text-violet-500', label: '皇家紫' },
+        'gray': { primary: 'text-slate-600', label: '太空灰' },
+      };
+
+      const QUOTE_TEXT = "先決定多空方向 — 再設好停損 — 不亂猜不貪心";
+
+      const formatCurrency = (amount) => {
+        return new Intl.NumberFormat('en-US', {
+          style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0,
+        }).format(amount);
+      };
+
+      const formatDate = (dateString) => {
+        const date = new Date(dateString);
+        return new Intl.DateTimeFormat('zh-TW', { month: 'short', day: 'numeric' }).format(date);
+      };
+
+      const getThemeBg = (theme) => {
+        switch(theme) {
+            case 'blue': return 'bg-blue-500';
+            case 'green': return 'bg-emerald-500';
+            case 'orange': return 'bg-orange-500';
+            case 'purple': return 'bg-violet-500';
+            case 'gray': return 'bg-slate-700';
+            default: return 'bg-blue-500';
+        }
+      };
+
+      const getThemeText = (theme) => {
+        switch(theme) {
+            case 'blue': return 'text-blue-500';
+            case 'green': return 'text-emerald-500';
+            case 'orange': return 'text-orange-500';
+            case 'purple': return 'text-violet-500';
+            case 'gray': return 'text-slate-700';
+            default: return 'text-blue-500';
+        }
+      };
+
+      // --- Icons ---
+      const HomeIcon = ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      );
+      const CalendarIcon = ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      );
+      const ChartIcon = ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      );
+      const PlusIcon = ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      );
+      const ChevronLeftIcon = ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="15 18 9 12 15 6"/></svg>
+      );
+      const ChevronRightIcon = ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="9 18 15 12 9 6"/></svg>
+      );
+      const GearIcon = ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      );
+      const TrashIcon = ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+      );
+      const DownloadIcon = ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      );
+      const UploadIcon = ({ className }) => (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      );
+
+      // --- Components ---
+      
+      const TabBar = ({ currentView, setView }) => {
+        const getTabClass = (view) =>
+          `flex flex-col items-center justify-center w-full h-full space-y-1 transition-colors duration-200 ${
+            currentView === view || (currentView === ViewState.ADD && view === ViewState.HOME) 
+              ? 'text-gray-900' 
+              : 'text-gray-400'
+          }`;
+        return (
+          <div className="fixed bottom-0 left-0 right-0 h-[84px] bg-white/80 backdrop-blur-md border-t border-gray-200 pb-5 z-40 max-w-md mx-auto">
+            <div className="flex justify-around items-center h-full">
+              <button className={getTabClass(ViewState.HOME)} onClick={() => setView(ViewState.HOME)}>
+                <HomeIcon className="w-6 h-6" />
+                <span className="text-[10px] font-medium">首頁</span>
+              </button>
+              <button className={getTabClass(ViewState.CALENDAR)} onClick={() => setView(ViewState.CALENDAR)}>
+                <CalendarIcon className="w-6 h-6" />
+                <span className="text-[10px] font-medium">日曆</span>
+              </button>
+              <button className={getTabClass(ViewState.STATS)} onClick={() => setView(ViewState.STATS)}>
+                <ChartIcon className="w-6 h-6" />
+                <span className="text-[10px] font-medium">統計</span>
+              </button>
+            </div>
+          </div>
+        );
+      };
+
+      const HomeView = ({ transactions, onChangeView, settings, onEditTransaction }) => {
+        const today = new Date().toISOString().split('T')[0];
+        const todaysTransactions = transactions.filter(t => t.date === today);
+        const dailyPL = todaysTransactions.reduce((acc, t) => acc + t.pl, 0);
+        const recentTransactions = [...transactions].sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
+        const themeText = getThemeText(settings.themeColor);
+        const themeBg = getThemeBg(settings.themeColor);
+
+        return (
+          <div className="pb-24 pt-10 px-5 animate-fade-in">
+            <header className="mb-6 flex justify-between items-start">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">今日概況</h1>
+                <p className="text-sm text-gray-500 font-medium mt-1">{new Date().toLocaleDateString('zh-TW', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+              </div>
+              <button 
+                onClick={() => onChangeView(ViewState.SETTINGS)}
+                className="p-2 bg-white rounded-full shadow-sm border border-gray-100 text-gray-400 hover:text-gray-600 active:bg-gray-50 transition-colors"
+              >
+                <GearIcon className="w-5 h-5" />
+              </button>
+            </header>
+
+            <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-6 shadow-lg mb-8 text-center relative overflow-hidden">
+              <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r opacity-50 ${settings.themeColor === 'gray' ? 'from-gray-400 to-white' : `from-${settings.themeColor}-400 to-${settings.themeColor}-600`}`}></div>
+              <p className="text-white/90 font-medium text-lg leading-relaxed tracking-wide font-sans">{QUOTE_TEXT}</p>
+            </div>
+
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-800">今日損益</h2>
+                <p className={`text-2xl font-bold ${dailyPL >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  {dailyPL >= 0 ? '+' : ''}{formatCurrency(dailyPL)}
+                </p>
+              </div>
+              <button 
+                onClick={() => onChangeView(ViewState.ADD)}
+                className={`${themeBg} active:opacity-90 text-white w-12 h-12 rounded-full shadow-lg shadow-gray-400/30 flex items-center justify-center transition-transform active:scale-95`}
+              >
+                <PlusIcon className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-4">近期交易</h3>
+              <div className="space-y-3">
+                {recentTransactions.length === 0 ? (
+                  <div className="text-center py-10 bg-white rounded-xl shadow-sm border border-gray-100">
+                    <p className="text-gray-400">尚無交易記錄</p>
+                    <button onClick={() => onChangeView(ViewState.ADD)} className={`${themeText} font-medium mt-2`}>開始記帳</button>
+                  </div>
+                ) : (
+                  recentTransactions.map(t => (
+                    <div 
+                      key={t.id} 
+                      onClick={() => onEditTransaction(t)}
+                      className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between active:scale-[0.99] transition-transform cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-full ${ASSET_COLORS[t.assetType]} flex items-center justify-center text-white text-xs font-bold shadow-md opacity-90`}>
+                          {ASSET_LABELS[t.assetType][0]}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-800">{t.symbol || ASSET_LABELS[t.assetType]}</p>
+                          <p className="text-xs text-gray-400">{formatDate(t.date)} • {DIRECTION_LABELS[t.direction]}</p>
+                        </div>
+                      </div>
+                      <div className={`text-right font-bold ${t.pl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                        {t.pl >= 0 ? '+' : ''}{formatCurrency(t.pl)}
+                      </div>
+                    </div>
+                  ))
+                )}
+                {recentTransactions.length > 0 && (
+                  <p className="text-center text-xs text-gray-400 mt-4">點擊紀錄可進行編輯或刪除</p>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const CalendarView = ({ transactions }) => {
+        const [currentDate, setCurrentDate] = useState(new Date());
+        const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
+        const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
+
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const daysInMonth = getDaysInMonth(year, month);
+        const firstDay = getFirstDayOfMonth(year, month);
+
+        const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
+        const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
+
+        const dailyData = useMemo(() => {
+          const data = {};
+          transactions.forEach(t => {
+            const tDate = new Date(t.date);
+            if (tDate.getFullYear() === year && tDate.getMonth() === month) {
+              const day = tDate.getDate();
+              if (!data[day]) data[day] = { total: 0, count: 0 };
+              data[day].total += t.pl;
+              data[day].count += 1;
+            }
+          });
+          return data;
+        }, [transactions, year, month]);
+
+        const renderCalendarDays = () => {
+          const days = [];
+          for (let i = 0; i < firstDay; i++) days.push(<div key={`empty-${i}`} className="h-24"></div>);
+          for (let d = 1; d <= daysInMonth; d++) {
+            const info = dailyData[d];
+            const isToday = new Date().toDateString() === new Date(year, month, d).toDateString();
+            days.push(
+              <div key={d} className={`h-24 border-t border-gray-100 flex flex-col items-center justify-start pt-2 relative ${isToday ? 'bg-blue-50/50' : ''}`}>
+                 <span className={`text-xs font-medium mb-1 ${isToday ? 'text-apple-blue font-bold' : 'text-gray-500'}`}>{d}</span>
+                 {info && (
+                   <div className="flex flex-col items-center animate-scale-in">
+                     <span className={`text-[10px] font-bold ${info.total >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>
+                       {info.total >= 0 ? '+' : ''}{Math.abs(info.total) >= 1000 ? (Math.abs(info.total)/1000).toFixed(1) + 'k' : Math.abs(info.total)}
+                     </span>
+                     <div className="flex gap-0.5 mt-1">
+                       {[...Array(Math.min(info.count, 3))].map((_, idx) => <div key={idx} className="w-1 h-1 rounded-full bg-gray-300"></div>)}
+                     </div>
+                   </div>
+                 )}
+              </div>
+            );
+          }
+          return days;
+        };
+
+        const monthPL = Object.values(dailyData).reduce((acc, val) => acc + val.total, 0);
+
+        return (
+          <div className="pb-24 pt-12 animate-fade-in h-full flex flex-col">
+            <div className="px-5 mb-6 flex items-center justify-between">
+              <h1 className="text-3xl font-bold text-gray-900">交易日曆</h1>
+              <div className="flex gap-2">
+                  <button onClick={prevMonth} className="p-2 bg-white rounded-full shadow-sm text-gray-600 active:bg-gray-100"><ChevronLeftIcon className="w-5 h-5"/></button>
+                  <button onClick={nextMonth} className="p-2 bg-white rounded-full shadow-sm text-gray-600 active:bg-gray-100"><ChevronRightIcon className="w-5 h-5"/></button>
+              </div>
+            </div>
+            <div className="px-5 mb-4 flex justify-between items-end">
+               <div>
+                  <p className="text-gray-500 text-sm font-medium">{currentDate.toLocaleDateString('zh-TW', { month: 'long', year: 'numeric' })}</p>
+                  <p className={`text-xl font-bold ${monthPL >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>{monthPL >= 0 ? '+' : ''}{formatCurrency(monthPL)}</p>
+               </div>
+            </div>
+            <div className="flex-1 bg-white rounded-t-3xl shadow-[0_-4px_20px_rgba(0,0,0,0.02)] overflow-hidden flex flex-col">
+              <div className="grid grid-cols-7 border-b border-gray-100 py-3 bg-gray-50/50">
+                 {['日', '一', '二', '三', '四', '五', '六'].map(d => <div key={d} className="text-center text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{d}</div>)}
+              </div>
+              <div className="grid grid-cols-7 flex-1 overflow-y-auto no-scrollbar">{renderCalendarDays()}</div>
+            </div>
+          </div>
+        );
+      };
+
+      const StatsView = ({ transactions }) => {
+        const [period, setPeriod] = useState(StatsPeriod.MONTH);
+        const filteredTransactions = useMemo(() => {
+          const now = new Date();
+          return transactions.filter(t => {
+            const tDate = new Date(t.date);
+            if (period === StatsPeriod.MONTH) return tDate.getMonth() === now.getMonth() && tDate.getFullYear() === now.getFullYear();
+            else if (period === StatsPeriod.QUARTER) {
+              const currentQuarter = Math.floor((now.getMonth() + 3) / 3);
+              const tQuarter = Math.floor((tDate.getMonth() + 3) / 3);
+              return tQuarter === currentQuarter && tDate.getFullYear() === now.getFullYear();
+            } else return tDate.getFullYear() === now.getFullYear();
+          });
+        }, [transactions, period]);
+
+        const totalPL = filteredTransactions.reduce((acc, t) => acc + t.pl, 0);
+        const winCount = filteredTransactions.filter(t => t.pl > 0).length;
+        const totalCount = filteredTransactions.length;
+        const winRate = totalCount > 0 ? Math.round((winCount / totalCount) * 100) : 0;
+
+        const assetData = useMemo(() => {
+            const data = [ { name: AssetType.STOCK, value: 0 }, { name: AssetType.FUTURES, value: 0 }, { name: AssetType.CRYPTO, value: 0 } ];
+            filteredTransactions.forEach(t => {
+                const idx = data.findIndex(d => d.name === t.assetType);
+                if (idx > -1) data[idx].value += t.pl;
+            });
+            return data;
+        }, [filteredTransactions]);
+
+        const timeData = useMemo(() => {
+            const grouped = {};
+            filteredTransactions.forEach(t => {
+                const d = t.date.split('-').slice(1).join('/'); 
+                grouped[d] = (grouped[d] || 0) + t.pl;
+            });
+            return Object.keys(grouped).map(key => ({ date: key, pl: grouped[key] }));
+        }, [filteredTransactions]);
+
+        const PERIOD_LABELS = { [StatsPeriod.MONTH]: '本月', [StatsPeriod.QUARTER]: '本季', [StatsPeriod.YEAR]: '今年' };
+
+        return (
+          <div className="pb-24 pt-12 px-5 animate-fade-in">
+            <h1 className="text-3xl font-bold text-gray-900 mb-6">績效統計</h1>
+            <div className="flex bg-gray-200/50 p-1 rounded-xl mb-8">
+              {Object.values(StatsPeriod).map(p => (
+                <button key={p} onClick={() => setPeriod(p)} className={`flex-1 py-1.5 text-sm font-medium rounded-lg transition-all ${period === p ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>{PERIOD_LABELS[p]}</button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                <p className="text-sm text-gray-500 font-medium">淨損益</p>
+                <p className={`text-2xl font-bold mt-1 ${totalPL >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>{totalPL >= 0 ? '+' : ''}{formatCurrency(totalPL)}</p>
+              </div>
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                <p className="text-sm text-gray-500 font-medium">勝率</p>
+                <div className="flex items-end gap-1 mt-1"><p className="text-2xl font-bold text-gray-900">{winRate}%</p><p className="text-xs text-gray-400 mb-1.5">/ {totalCount} 筆交易</p></div>
+              </div>
+            </div>
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-8">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">損益趨勢</h3>
+                <div className="h-48 w-full">
+                  {timeData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={timeData}>
+                              <XAxis dataKey="date" hide />
+                              <YAxis hide />
+                              <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} formatter={(value) => [formatCurrency(value), '損益']} />
+                              <Bar dataKey="pl" radius={[4, 4, 4, 4]}>{timeData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.pl >= 0 ? '#34C759' : '#FF3B30'} />)}</Bar>
+                          </BarChart>
+                      </ResponsiveContainer>
+                  ) : <div className="h-full flex items-center justify-center text-gray-300 text-sm">此期間尚無資料</div>}
+                </div>
+            </div>
+             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">商品損益</h3>
+                <div className="space-y-4">
+                    {assetData.map(asset => (
+                        <div key={asset.name} className="flex items-center justify-between">
+                            <div className="flex items-center gap-3"><div className={`w-3 h-3 rounded-full ${ASSET_COLORS[asset.name]}`}></div><span className="text-gray-700 font-medium">{ASSET_LABELS[asset.name]}</span></div>
+                            <span className={`font-bold ${asset.value >= 0 ? 'text-apple-green' : 'text-apple-red'}`}>{asset.value >= 0 ? '+' : ''}{formatCurrency(asset.value)}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+          </div>
+        );
+      };
+
+      const AddTransactionView = ({ onSave, onCancel, onDelete, initialData, settings }) => {
+        const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+        const [assetType, setAssetType] = useState(AssetType.STOCK);
+        const [direction, setDirection] = useState(TradeDirection.LONG);
+        const [symbol, setSymbol] = useState('');
+        const [pl, setPl] = useState('');
+        const [note, setNote] = useState('');
+
+        useEffect(() => {
+          if (initialData) {
+            setDate(initialData.date);
+            setAssetType(initialData.assetType);
+            setDirection(initialData.direction);
+            setSymbol(initialData.symbol);
+            setPl(initialData.pl.toString());
+            setNote(initialData.note || '');
+          }
+        }, [initialData]);
+
+        const handleSubmit = (e) => {
+          e.preventDefault();
+          if (!pl) return;
+          onSave({
+            id: initialData?.id,
+            date, assetType, direction, symbol: symbol.toUpperCase(), pl: parseFloat(pl), note,
+            timestamp: initialData ? initialData.timestamp : Date.now()
+          });
+        };
+        
+        const themeText = getThemeText(settings.themeColor);
+
+        return (
+          <div className="fixed inset-0 bg-gray-50 z-50 overflow-y-auto animate-slide-up">
+            <div className="px-5 pt-8 pb-10 max-w-md mx-auto h-full flex flex-col">
+              <div className="flex justify-between items-center mb-8">
+                  <button onClick={onCancel} className={`${themeText} font-medium text-lg`}>取消</button>
+                  <h2 className="text-lg font-bold text-gray-900">{initialData ? '編輯紀錄' : '新增紀錄'}</h2>
+                  <button onClick={handleSubmit} className={`${themeText} font-bold text-lg disabled:opacity-50`} disabled={!pl}>完成</button>
+              </div>
+              <form className="space-y-6 flex-1" onSubmit={handleSubmit}>
+                  <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex flex-col items-center justify-center py-8">
+                      <label className="text-gray-400 text-sm font-medium mb-2">損益金額 ($)</label>
+                      <input type="number" value={pl} onChange={(e) => setPl(e.target.value)} placeholder="0" className={`text-5xl font-bold text-center w-full focus:outline-none bg-transparent ${parseFloat(pl) < 0 ? 'text-rose-500' : 'text-emerald-500'}`} autoFocus={!initialData} />
+                  </div>
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-2 ml-1">交易種類</label>
+                          <div className="bg-gray-200/50 p-1 rounded-xl flex">
+                              {Object.values(AssetType).map(type => (
+                                  <button key={type} type="button" onClick={() => setAssetType(type)} className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${assetType === type ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}>{ASSET_LABELS[type]}</button>
+                              ))}
+                          </div>
+                      </div>
+                      <div>
+                          <label className="block text-gray-500 text-xs font-bold uppercase tracking-wider mb-2 ml-1">方向</label>
+                          <div className="bg-gray-200/50 p-1 rounded-xl flex">
+                              {Object.values(TradeDirection).map(dir => (
+                                  <button key={dir} type="button" onClick={() => setDirection(dir)} className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${direction === dir ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}>{DIRECTION_LABELS[dir]}</button>
+                              ))}
+                          </div>
+                      </div>
+                  </div>
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                      <div className="flex items-center border-b border-gray-100 px-4 py-3">
+                          <label className="w-20 text-gray-500 font-medium">日期</label>
+                          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="flex-1 focus:outline-none bg-transparent text-gray-900" />
+                      </div>
+                      <div className="flex items-center border-b border-gray-100 px-4 py-3">
+                          <label className="w-20 text-gray-500 font-medium">代碼</label>
+                          <input type="text" value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="AAPL, BTC, ES..." className="flex-1 focus:outline-none bg-transparent text-gray-900 uppercase placeholder-gray-300" />
+                      </div>
+                      <div className="flex items-center px-4 py-3">
+                          <label className="w-20 text-gray-500 font-medium">筆記</label>
+                          <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="策略心得..." className="flex-1 focus:outline-none bg-transparent text-gray-900 placeholder-gray-300" />
+                      </div>
+                  </div>
+                  {initialData && onDelete && (
+                    <button type="button" onClick={() => window.confirm('確定要刪除這筆紀錄嗎？') && onDelete(initialData.id)} className="w-full py-4 text-rose-500 font-medium flex items-center justify-center gap-2 active:bg-rose-50 rounded-xl transition-colors">
+                      <TrashIcon className="w-5 h-5" />刪除此紀錄
+                    </button>
+                  )}
+              </form>
+            </div>
+          </div>
+        );
+      };
+
+      const SettingsView = ({ settings, onUpdateSettings, onBack, onExport, onImport, onClearData }) => {
+        const fileInputRef = useRef(null);
+        const handleFileChange = (e) => {
+          if (e.target.files && e.target.files[0]) onImport(e.target.files[0]);
+        };
+        return (
+          <div className="pb-24 pt-8 px-5 animate-fade-in bg-gray-50 min-h-screen">
+            <div className="flex items-center mb-8 relative">
+              <button onClick={onBack} className={`absolute left-0 p-2 -ml-2 rounded-full active:bg-gray-200 ${getThemeText(settings.themeColor)}`}><ChevronLeftIcon className="w-6 h-6" /></button>
+              <h1 className="text-2xl font-bold text-gray-900 w-full text-center">設定</h1>
+            </div>
+            <div className="space-y-8">
+              <section>
+                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 ml-1">外觀風格</h2>
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="p-4 border-b border-gray-100">
+                    <label className="block text-sm font-medium text-gray-700 mb-3">主題色系</label>
+                    <div className="flex justify-between px-2">
+                      {Object.keys(THEME_COLORS).map((color) => (
+                        <button key={color} onClick={() => onUpdateSettings({ ...settings, themeColor: color })} className={`flex flex-col items-center gap-1 group`}>
+                          <div className={`w-10 h-10 rounded-full ${getThemeBg(color)} shadow-sm flex items-center justify-center transition-transform ${settings.themeColor === color ? 'scale-110 ring-2 ring-offset-2 ring-gray-300' : 'opacity-70 group-hover:opacity-100'}`}>
+                            {settings.themeColor === color && <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>}
+                          </div>
+                          <span className="text-[10px] text-gray-500">{THEME_COLORS[color].label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-3">字體風格</label>
+                    <div className="flex bg-gray-100 rounded-lg p-1">
+                      {['sans', 'rounded', 'serif'].map((font) => (
+                        <button key={font} onClick={() => onUpdateSettings({ ...settings, fontFamily: font })} className={`flex-1 py-2 text-sm rounded-md transition-all ${settings.fontFamily === font ? 'bg-white text-gray-900 shadow-sm font-semibold' : 'text-gray-500'}`}>
+                          {font === 'sans' ? '系統' : font === 'rounded' ? '圓體' : '襯線'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section>
+                <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 ml-1">資料管理</h2>
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden divide-y divide-gray-100">
+                  <button onClick={onExport} className="w-full flex items-center justify-between p-4 active:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center"><DownloadIcon className="w-4 h-4" /></div><div className="text-left"><p className="text-sm font-semibold text-gray-900">匯出資料 (備份)</p><p className="text-xs text-gray-400">下載 JSON 檔案</p></div></div>
+                  </button>
+                  <button onClick={() => fileInputRef.current?.click()} className="w-full flex items-center justify-between p-4 active:bg-gray-50 transition-colors">
+                    <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-green-50 text-green-500 flex items-center justify-center"><UploadIcon className="w-4 h-4" /></div><div className="text-left"><p className="text-sm font-semibold text-gray-900">匯入資料 (還原)</p><p className="text-xs text-gray-400">從 JSON 檔案復原</p></div></div><input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" />
+                  </button>
+                  <button onClick={() => window.confirm('確定要清除所有資料嗎？此操作無法復原。') && onClearData()} className="w-full flex items-center justify-between p-4 active:bg-red-50 transition-colors">
+                    <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center"><TrashIcon className="w-4 h-4" /></div><div className="text-left"><p className="text-sm font-semibold text-red-500">清除所有資料</p><p className="text-xs text-red-300">重置 App</p></div></div>
+                  </button>
+                </div>
+              </section>
+              <div className="text-center"><p className="text-xs text-gray-300 mt-8">TradeFlow v1.1.0</p></div>
+            </div>
+          </div>
+        );
+      };
+
+      const App = () => {
+        const STORAGE_KEY = 'tradeflow_data_v1';
+        const SETTINGS_KEY = 'tradeflow_settings_v1';
+        const DEFAULT_SETTINGS = { themeColor: 'blue', fontFamily: 'sans' };
+
+        const [view, setView] = useState(ViewState.HOME);
+        const [transactions, setTransactions] = useState([]);
+        const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+        const [editingTransaction, setEditingTransaction] = useState(null);
+
+        useEffect(() => {
+          const savedData = localStorage.getItem(STORAGE_KEY);
+          const savedSettings = localStorage.getItem(SETTINGS_KEY);
+          if (savedData) try { setTransactions(JSON.parse(savedData)); } catch (e) {}
+          if (savedSettings) try { setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) }); } catch (e) {}
+        }, []);
+
+        useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions)); }, [transactions]);
+        useEffect(() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
+
+        const handleSaveTransaction = (transactionData) => {
+          if (transactionData.id && editingTransaction) setTransactions(prev => prev.map(t => t.id === transactionData.id ? transactionData : t));
+          else setTransactions(prev => [...prev, { ...transactionData, id: crypto.randomUUID() }]);
+          setEditingTransaction(null);
+          setView(ViewState.HOME);
+        };
+
+        const handleDeleteTransaction = (id) => {
+          setTransactions(prev => prev.filter(t => t.id !== id));
+          setEditingTransaction(null);
+          setView(ViewState.HOME);
+        };
+
+        const handleExportData = () => {
+          const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(transactions));
+          const downloadAnchorNode = document.createElement('a');
+          downloadAnchorNode.setAttribute("href", dataStr);
+          downloadAnchorNode.setAttribute("download", `tradeflow_backup_${new Date().toISOString().split('T')[0]}.json`);
+          document.body.appendChild(downloadAnchorNode);
+          downloadAnchorNode.click();
+          downloadAnchorNode.remove();
+        };
+
+        const handleImportData = (file) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              if (e.target?.result) {
+                const imported = JSON.parse(e.target.result);
+                if (Array.isArray(imported)) {
+                  if(window.confirm(`確定匯入 ${imported.length} 筆交易資料嗎？這將會覆蓋現有資料。`)) {
+                    setTransactions(imported);
+                    alert('匯入成功！');
+                    setView(ViewState.HOME);
+                  }
+                } else alert('檔案格式錯誤');
+              }
+            } catch (err) { alert('解析檔案失敗'); }
+          };
+          reader.readAsText(file);
+        };
+
+        const renderContent = () => {
+          if (view === ViewState.ADD) return <AddTransactionView onSave={handleSaveTransaction} onCancel={() => { setEditingTransaction(null); setView(ViewState.HOME); }} onDelete={editingTransaction ? handleDeleteTransaction : undefined} initialData={editingTransaction} settings={settings} />;
+          if (view === ViewState.SETTINGS) return <SettingsView settings={settings} onUpdateSettings={setSettings} onBack={() => setView(ViewState.HOME)} onExport={handleExportData} onImport={handleImportData} onClearData={() => { setTransactions([]); setView(ViewState.HOME); }} />;
+          switch (view) {
+            case ViewState.HOME: return <HomeView transactions={transactions} onChangeView={setView} settings={settings} onEditTransaction={(t) => { setEditingTransaction(t); setView(ViewState.ADD); }} />;
+            case ViewState.CALENDAR: return <CalendarView transactions={transactions} />;
+            case ViewState.STATS: return <StatsView transactions={transactions} />;
+            default: return <HomeView transactions={transactions} onChangeView={setView} settings={settings} onEditTransaction={(t) => { setEditingTransaction(t); setView(ViewState.ADD); }} />;
+          }
+        };
+
+        const getFontClass = () => {
+            switch(settings.fontFamily) {
+              case 'rounded': return 'font-rounded';
+              case 'serif': return 'font-serif';
+              default: return 'font-sans';
+            }
+        };
+
+        return (
+          <div className={`min-h-screen bg-gray-50 text-gray-900 ${getFontClass()} selection:bg-gray-200`}>
+            <main className="max-w-md mx-auto min-h-screen bg-gray-50 relative shadow-2xl overflow-hidden">
+              {renderContent()}
+              {view !== ViewState.ADD && view !== ViewState.SETTINGS && <TabBar currentView={view} setView={setView} />}
+            </main>
+          </div>
+        );
+      };
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+</body>
+</html>
